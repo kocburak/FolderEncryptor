@@ -8,7 +8,7 @@ Simplest way to encrypt your folder is:
 FolderEncryptor.exe enc --dir C:\input-folder --desDir C:\encrypted-folder 
 ```
 
-And to dencrypt your folder:
+And to decrypt your folder:
 ```
 FolderEncryptor.exe dec --dir C:\encrypted-folder --desDir C:\decrypted-folder 
 ```
