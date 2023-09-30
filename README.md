@@ -14,3 +14,13 @@ FolderEncryptor.exe dec --dir C:\encrypted-folder --desDir C:\decrypted-folder
 ```
 
 For additional security we highly recomend the usage of `--enc-filenames` flag
+
+## Commands
+
+**The command `FolderEncryptor.exe --help` lists the available commands and `FolderEncryptor.exe <command> --help` shows more details for an individual command.**
+
+| Command        | Description                                                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **enc**        | Encrypt the spesified target.                                                                                                                   |
+| **dec**        | Decrypt the spesified target.                                                                                                                   |
+| **analyze**    | Analyze the spesified target.                                                                                                                   |
