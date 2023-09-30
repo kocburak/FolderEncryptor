@@ -1,5 +1,5 @@
 # FolderEncryptor
-FolderEncryptor is a tool to enable you to encyrpt a whole folder, hence the name.
+FolderEncryptor is a tool to enable you to encrypt a whole folder, hence the name.
 
 # Usage
 
