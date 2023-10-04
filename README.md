@@ -1,5 +1,12 @@
 # FolderEncryptor
+
 FolderEncryptor is a tool to enable you to encrypt a whole folder, hence the name.
+
+## Table of Contents
+* [Usage](#usage)
+* [Commands](#commands)
+* [Road Map](#road-map)
+* [IMPORTANT NOTE!](#important-note)
 
 # Usage
 
@@ -15,12 +22,21 @@ FolderEncryptor.exe dec --dir C:\encrypted-folder --desDir C:\decrypted-folder
 
 For additional security we highly recomend the usage of `--enc-filenames` flag
 
-## Commands
+# Commands
 
 **The command `FolderEncryptor.exe --help` lists the available commands and `FolderEncryptor.exe <command> --help` shows more details for an individual command.**
 
-| Command        | Description                                                                                                                                     |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **enc**        | Encrypt the spesified target.                                                                                                                   |
-| **dec**        | Decrypt the spesified target.                                                                                                                   |
-| **analyze**    | Analyze the spesified target.                                                                                                                   |
+| Command        | Description                    |
+| -------------- | ------------------------------ |
+| **enc**        | Encrypt the spesified target.  |
+| **dec**        | Decrypt the spesified target.  |
+| **analyze**    | Analyze the spesified target.  |
+
+# Road Map
+
+- Option to securely erase unencrypted files. (looking at you Gutmann Algorithm 👀).
+- A way to use the file without decrypting to file system first.
+
+# IMPORTANT NOTE!
+
+When you encrypt your folder and than delete the old folder. Keep in mind that it can still be **recovered**! We are planning to include secure delete of the folder bu meanwhile you must use a 3rd Party tool for that such as Microsoft's [Sysinternals SDelete](https://learn.microsoft.com/tr-tr/sysinternals/downloads/sdelete) for Windows 10 and up.
