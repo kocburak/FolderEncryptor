@@ -1,10 +1,13 @@
 # FolderEncryptor
 
+[![Latest Release](https://img.shields.io/github/v/tag/kocburak/FolderEncryptor?label=release)](https://github.com/kocburak/FolderEncryptor/releases/latest)
+
 FolderEncryptor is a tool to enable you to encrypt a whole folder, hence the name.
 
 ## Table of Contents
 * [Usage](#usage)
 * [Commands](#commands)
+* [Building](#building)
 * [Road Map](#road-map)
 * [IMPORTANT NOTE!](#important-note)
 
@@ -31,6 +34,13 @@ For additional security we highly recomend the usage of `--enc-filenames` flag
 | **enc**        | Encrypt the spesified target.  |
 | **dec**        | Decrypt the spesified target.  |
 | **analyze**    | Analyze the spesified target.  |
+
+# Building
+
+### Prerequisite
+
+* Visual Studio Version 17
+* .NET 6 SDK
 
 # Road Map
 
