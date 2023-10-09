@@ -45,6 +45,7 @@ For additional security we highly recomend the usage of `--enc-filenames` flag
 # Road Map
 
 - Option to securely erase unencrypted files. (looking at you Gutmann Algorithm 👀).
+- Option to overwrite the original file to erase unencrypted data. (This may be not possible if `--enc-filenames` flag is set)
 - A way to use the file without decrypting to file system first.
 
 # IMPORTANT NOTE!
