@@ -1,4 +1,5 @@
-﻿using System.CommandLine;
+﻿using System.Collections.Concurrent;
+using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -87,11 +88,7 @@ namespace FolderEncryptor
 
             decryptCommand.SetHandler((dir, desDir, argPassword, isSilent, isFileNameEncrypted) =>
             {
-                StringBuilder password;
-                if (string.IsNullOrWhiteSpace(argPassword))
-                    password = ReadLine();
-                else
-                    password = new StringBuilder(argPassword);
+                StringBuilder password = GetPassword(argPassword);
 
                 DecryptFolder(dir.FullName, desDir.FullName, password, isSilent, isFileNameEncrypted);
             }, directoryOption, decryptionDestinationDirectoryOption, passwordOption, silentOption, encryptFileName);
@@ -108,15 +105,295 @@ namespace FolderEncryptor
                 Console.WriteLine("Total number of files: " + files.Count);
             }, directoryOption);
 
+            var listCommand = new Command("list", "Descrpyt and list filenames.")
+            {
+                directoryOption,
+                passwordOption
+            };
+
+            listCommand.SetHandler((dir, argPassword, isSilent) =>
+            {
+                StringBuilder password = GetPassword(argPassword);
+                ListDecryptedFileNames(dir.FullName, password, isSilent);
+
+            }, directoryOption, passwordOption, silentOption);
+
+
             var rootCommand = new RootCommand("Directory encryption tool.");
 
             rootCommand.AddGlobalOption(silentOption);
 
+            rootCommand.AddCommand(listCommand);
             rootCommand.AddCommand(encryptCommand);
             rootCommand.AddCommand(decryptCommand);
             rootCommand.AddCommand(analyzeCommand);
 
             return await rootCommand.InvokeAsync(args);
+        }
+
+
+        private static void ListDecryptedFileNames(string sourceFolder, StringBuilder password, bool isSilent = false)
+        {
+            // Loop through each file in the source folder
+            List<string> files = Directory.GetFiles(sourceFolder).ToList();
+            GetSubDirectories(sourceFolder, files);
+
+            ConcurrentBag<string> decryptedFilenames = new ConcurrentBag<string>();
+
+            var totalTimer = new Stopwatch();
+
+            if (!isSilent)
+                totalTimer.Start();
+
+            Parallel.ForEach(files, (filePath) =>
+            //foreach (string filePath in files)
+            {
+                if (!isSilent)
+                    Console.WriteLine("Decryption started for: " + filePath);
+
+                var fileTimer = Stopwatch.StartNew();
+
+                using (var fsIn = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+                {
+                    // Read the salt value from the beginning of the input file
+                    byte[] salt = new byte[8];
+                    fsIn.Read(salt, 0, salt.Length);
+                    var relativeFilePath = filePath.Replace(sourceFolder + Path.DirectorySeparatorChar, "");
+                    using (var aes = Aes.Create())
+                    {
+                        SetAESParameters(password, aes, salt);
+                        decryptedFilenames.Add(DecryptFilePath(relativeFilePath, aes));
+                    }
+                }
+
+                if (!isSilent)
+                {
+                    fileTimer.Stop();
+                    Console.WriteLine("Decryption finished. Time taken: " + fileTimer.Elapsed.ToString(@"m\:ss\.fff") + " for: " + filePath);
+                }
+
+            });
+
+            var orderedFileNames = decryptedFilenames.OrderBy(x => x);
+
+            foreach (var filename in orderedFileNames)
+            {
+                Console.WriteLine(filename);
+            }
+
+            if (!isSilent)
+            {
+                totalTimer.Stop();
+                TimeSpan timeTaken = totalTimer.Elapsed;
+                Console.WriteLine();
+                Console.WriteLine("Total time taken: " + timeTaken.ToString(@"m\:ss\.fff"));
+            }
+        }
+
+        private static string EncryptFilePath(string relativeFilePath, Aes aes)
+        {
+            string encryptedFileName;
+            var encryptor = aes.CreateEncryptor();
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                {
+                    using (StreamWriter sw = new StreamWriter(cs))
+                    {
+                        sw.Write(relativeFilePath);
+                    }
+                }
+                encryptedFileName = Convert.ToBase64String(ms.ToArray()).Replace("/", "_");
+            }
+            return encryptedFileName;
+        }
+
+        private static void EncryptFolder(string sourceFolder, string destinationFolder, StringBuilder password, bool isSilent = false, bool encryptFileName = true)
+        {
+
+            var totalTimer = new Stopwatch();
+            if (!isSilent)
+                totalTimer.Start();
+
+            // Generate a random salt value
+            // Encrypt each file in the source folder and copy it to the destination folder
+            List<string> files = Directory.GetFiles(sourceFolder).ToList();
+            GetSubDirectories(sourceFolder, files);
+
+            object lockObj = new object();
+
+            Parallel.ForEach(files, (filePath) =>
+            //foreach (string filePath in files)
+            {
+                if (!isSilent)
+                    Console.WriteLine("Encryption started for: " + filePath);
+
+                var fileTimer = Stopwatch.StartNew();
+
+                var relativeFilePath = filePath.Replace(sourceFolder + Path.DirectorySeparatorChar, "");
+
+                byte[] salt = GenerateSalt();
+
+                if (encryptFileName)
+                {
+                    using (var aes = Aes.Create())
+                    {
+                        SetAESParameters(password, aes, salt);
+                        relativeFilePath = EncryptFilePath(relativeFilePath, aes);
+                    }
+                }
+
+                var destination = Path.Combine(destinationFolder, relativeFilePath);
+                var finalDestinationFolder = Path.GetDirectoryName(destination);
+
+                lock (lockObj)
+                {
+                    // Create the destination folder if it doesn't exist
+                    if (!Directory.Exists(finalDestinationFolder))
+                        Directory.CreateDirectory(finalDestinationFolder);
+
+                }
+
+                using (var fsIn = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+                using (var fsOut = new FileStream(destination, FileMode.Create, FileAccess.Write))
+                using (var aes = Aes.Create())
+                {
+                    SetAESParameters(password, aes, salt);
+
+                    // Write the salt value to the beginning of the output file
+                    fsOut.Write(salt, 0, salt.Length);
+
+                    // Encrypt the file using the AES algorithm
+                    using (var cryptoStream = new CryptoStream(fsOut, aes.CreateEncryptor(), CryptoStreamMode.Write))
+                    {
+                        fsIn.CopyTo(cryptoStream);
+                    }
+                }
+
+                if (!isSilent)
+                {
+                    fileTimer.Stop();
+                    Console.WriteLine("Encryption finished. Time taken: " + fileTimer.Elapsed.ToString(@"m\:ss\.fff") + " for: " + filePath);
+                }
+            });
+
+            if (!isSilent)
+            {
+                totalTimer.Stop();
+                TimeSpan timeTaken = totalTimer.Elapsed;
+                Console.WriteLine();
+                Console.WriteLine("Total time taken: " + timeTaken.ToString(@"m\:ss\.fff"));
+            }
+
+        }
+
+        private static string DecryptFilePath(string encryptedFilePath, Aes aes)
+        {
+            var decryptor = aes.CreateDecryptor();
+            var base64FileName = encryptedFilePath.Replace("_", "/");
+            var cipherText = Convert.FromBase64String(base64FileName);
+            string decryptedFileName;
+            using (MemoryStream ms = new MemoryStream(cipherText))
+            {
+                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                {
+                    using (StreamReader reader = new StreamReader(cs))
+                        decryptedFileName = reader.ReadToEnd();
+
+                }
+            }
+            return decryptedFileName;
+        }
+
+        private static void DecryptFolder(string sourceFolder, string destinationFolder, StringBuilder password, bool isSilent = false, bool decryptFileName = true)
+        {
+            var totalTimer = new Stopwatch();
+
+            if (!isSilent)
+                totalTimer.Start();
+
+            // Loop through each file in the source folder
+            List<string> files = Directory.GetFiles(sourceFolder).ToList();
+            GetSubDirectories(sourceFolder, files);
+
+            object lockObj = new object();
+
+            Parallel.ForEach(files, (filePath) =>
+            //foreach (string filePath in files)
+            {
+
+                if (!isSilent)
+                    Console.WriteLine("Decryption started for: " + filePath);
+
+                var fileTimer = Stopwatch.StartNew();
+
+                using (var fsIn = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+                {
+                    // Read the salt value from the beginning of the input file
+                    byte[] salt = new byte[8];
+                    fsIn.Read(salt, 0, salt.Length);
+
+                    var relativeFilePath = filePath.Replace(sourceFolder + Path.DirectorySeparatorChar, "");
+
+                    if (!isSilent)
+                        Console.WriteLine(relativeFilePath);
+
+                    if (decryptFileName)
+                    {
+                        using (var aes = Aes.Create())
+                        {
+                            SetAESParameters(password, aes, salt);
+                            relativeFilePath = DecryptFilePath(relativeFilePath, aes);
+                        }
+                        if (!isSilent)
+                            Console.WriteLine(relativeFilePath);
+                    }
+
+                    var destination = Path.Combine(destinationFolder, relativeFilePath);
+                    var finalDestinationFolder = Path.GetDirectoryName(destination);
+                    // Create the destination folder if it doesn't exist
+                    lock (lockObj)
+                    {
+                        if (!Directory.Exists(finalDestinationFolder))
+                            Directory.CreateDirectory(finalDestinationFolder);
+                    }
+
+                    using (var aes = Aes.Create())
+                    {
+                        SetAESParameters(password, aes, salt);
+                        using (var cryptoStream = new CryptoStream(fsIn, aes.CreateDecryptor(), CryptoStreamMode.Read))
+                        using (var fsOut = new FileStream(destination, FileMode.Create, FileAccess.Write))
+
+                        {
+                            cryptoStream.CopyTo(fsOut);
+                        }
+                    }
+                }
+                if (!isSilent)
+                {
+                    fileTimer.Stop();
+                    Console.WriteLine("Decryption finished. Time taken: " + fileTimer.Elapsed.ToString(@"m\:ss\.fff") + " for: " + filePath);
+                }
+
+            });
+            if (!isSilent)
+            {
+                totalTimer.Stop();
+                TimeSpan timeTaken = totalTimer.Elapsed;
+                Console.WriteLine();
+                Console.WriteLine("Total time taken: " + timeTaken.ToString(@"m\:ss\.fff"));
+            }
+        }
+
+        private static StringBuilder GetPassword(string? argPassword)
+        {
+            StringBuilder password;
+            if (string.IsNullOrWhiteSpace(argPassword))
+                password = ReadLine();
+            else
+                password = new StringBuilder(argPassword);
+            return password;
         }
 
         private static StringBuilder ReadLine()
@@ -170,203 +447,15 @@ namespace FolderEncryptor
             }
         }
 
-        private static string EncryptFilePath(string relativeFilePath, Aes aes)
+        private static byte[] GenerateSalt()
         {
-            string result;
-            var encryptor = aes.CreateEncryptor();
-
-            using (MemoryStream ms = new MemoryStream())
+            byte[] salt = new byte[8];
+            using (var rng = RandomNumberGenerator.Create())
             {
-                using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-                {
-                    using (StreamWriter sw = new StreamWriter(cs))
-                    {
-                        sw.Write(relativeFilePath);
-                    }
-                }
-                result = Convert.ToBase64String(ms.ToArray()).Replace("/", "_");
-            }
-            return result;
-        }
-
-        private static string DecryptFilePath(string encryptedFilePath, Aes aes)
-        {
-            var decryptor = aes.CreateDecryptor();
-            var qwe = encryptedFilePath.Replace("_", "/");
-            var cipherText = Convert.FromBase64String(qwe);
-            string result;
-            using (MemoryStream ms = new MemoryStream(cipherText))
-            {
-                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
-                {
-                    using (StreamReader reader = new StreamReader(cs))
-                        result = reader.ReadToEnd();
-
-                }
-            }
-            Console.WriteLine(result);
-            return result;
-        }
-
-        private static void EncryptFolder(string sourceFolder, string destinationFolder, StringBuilder password, bool isSilent, bool encryptFileName)
-        {
-
-            var totalTimer = new Stopwatch();
-            if (!isSilent)
-                totalTimer.Start();
-
-            // Generate a random salt value
-            // Encrypt each file in the source folder and copy it to the destination folder
-            List<string> files = Directory.GetFiles(sourceFolder).ToList();
-            GetSubDirectories(sourceFolder, files);
-
-            object lockObj = new object();
-
-            Parallel.ForEach(files, (filePath) =>
-            //foreach (string filePath in files)
-            {
-                if (!isSilent)
-                    Console.WriteLine("Encryption started for: " + filePath);
-
-                var fileTimer = Stopwatch.StartNew();
-
-                var relativeFilePath = filePath.Replace(sourceFolder + Path.DirectorySeparatorChar, "");
-
-                using (var rng = RandomNumberGenerator.Create())
-                {
-                    byte[] salt = new byte[8];
-                    rng.GetBytes(salt);
-
-                    if (encryptFileName)
-                    {
-                        using (var aes = Aes.Create())
-                        {
-                            SetAESParameters(password, aes, salt);
-                            relativeFilePath = EncryptFilePath(relativeFilePath, aes);
-                        }
-                    }
-
-                    var destination = Path.Combine(destinationFolder, relativeFilePath);
-                    var finalDestinationFolder = Path.GetDirectoryName(destination);
-
-                    lock (lockObj)
-                    {
-                        // Create the destination folder if it doesn't exist
-                        if (!Directory.Exists(finalDestinationFolder))
-                            Directory.CreateDirectory(finalDestinationFolder);
-
-                    }
-
-                    using (var fsIn = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-                    using (var fsOut = new FileStream(destination, FileMode.Create, FileAccess.Write))
-                    using (var aes = Aes.Create())
-                    {
-                        SetAESParameters(password, aes, salt);
-
-                        // Write the salt value to the beginning of the output file
-                        fsOut.Write(salt, 0, salt.Length);
-
-                        // Encrypt the file using the AES algorithm
-                        using (var cryptoStream = new CryptoStream(fsOut, aes.CreateEncryptor(), CryptoStreamMode.Write))
-                        {
-                            fsIn.CopyTo(cryptoStream);
-                        }
-                    }
-
-                }
-
-                if (!isSilent)
-                {
-                    fileTimer.Stop();
-                    Console.WriteLine("Encryption finished. Time taken: " + fileTimer.Elapsed.ToString(@"m\:ss\.fff") + " for: " + filePath);
-                }
-            });
-
-            if (!isSilent)
-            {
-                totalTimer.Stop();
-                TimeSpan timeTaken = totalTimer.Elapsed;
-                Console.WriteLine();
-                Console.WriteLine("Total time taken: " + timeTaken.ToString(@"m\:ss\.fff"));
+                rng.GetBytes(salt);
             }
 
-        }
-
-        private static void DecryptFolder(string sourceFolder, string destinationFolder, StringBuilder password, bool isSilent, bool decryptFileName)
-        {
-            var totalTimer = new Stopwatch();
-
-            if (!isSilent)
-                totalTimer.Start();
-
-            // Loop through each file in the source folder
-            List<string> files = Directory.GetFiles(sourceFolder).ToList();
-            GetSubDirectories(sourceFolder, files);
-
-            object lockObj = new object();
-
-            Parallel.ForEach(files, (filePath) =>
-            //foreach (string filePath in files)
-            {
-
-                if (!isSilent)
-                    Console.WriteLine("Decryption started for: " + filePath);
-
-                var fileTimer = Stopwatch.StartNew();
-
-                using (var fsIn = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-                {
-                    // Read the salt value from the beginning of the input file
-                    byte[] salt = new byte[8];
-                    fsIn.Read(salt, 0, salt.Length);
-
-                    var relativeFilePath = filePath.Replace(sourceFolder + Path.DirectorySeparatorChar, "");
-                    Console.WriteLine(relativeFilePath);
-
-                    if (decryptFileName)
-                    {
-                        using (var aes = Aes.Create())
-                        {
-                            SetAESParameters(password, aes, salt);
-                            relativeFilePath = DecryptFilePath(relativeFilePath, aes);
-                        }
-                        Console.WriteLine(relativeFilePath);
-                    }
-
-                    var destination = Path.Combine(destinationFolder, relativeFilePath);
-                    var finalDestinationFolder = Path.GetDirectoryName(destination);
-                    // Create the destination folder if it doesn't exist
-                    lock (lockObj)
-                    {
-                        if (!Directory.Exists(finalDestinationFolder))
-                            Directory.CreateDirectory(finalDestinationFolder);
-                    }
-
-                    using (var aes = Aes.Create())
-                    {
-                        SetAESParameters(password, aes, salt);
-                        using (var cryptoStream = new CryptoStream(fsIn, aes.CreateDecryptor(), CryptoStreamMode.Read))
-                        using (var fsOut = new FileStream(destination, FileMode.Create, FileAccess.Write))
-
-                        {
-                            cryptoStream.CopyTo(fsOut);
-                        }
-                    }
-                }
-                if (!isSilent)
-                {
-                    fileTimer.Stop();
-                    Console.WriteLine("Decryption finished. Time taken: " + fileTimer.Elapsed.ToString(@"m\:ss\.fff") + " for: " + filePath);
-                }
-
-            });
-            if (!isSilent)
-            {
-                totalTimer.Stop();
-                TimeSpan timeTaken = totalTimer.Elapsed;
-                Console.WriteLine();
-                Console.WriteLine("Total time taken: " + timeTaken.ToString(@"m\:ss\.fff"));
-            }
+            return salt;
         }
     }
 
