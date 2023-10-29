@@ -69,11 +69,7 @@ namespace FolderEncryptor
 
             encryptCommand.SetHandler((dir, desDir, argPassword, isSilent, isFileNameEncrypted) =>
             {
-                StringBuilder password;
-                if (string.IsNullOrWhiteSpace(argPassword))
-                    password = ReadLine();
-                else
-                    password = new StringBuilder(argPassword);
+                StringBuilder password = GetPassword(argPassword, 2);
 
                 EncryptFolder(dir.FullName, desDir.FullName, password, isSilent, isFileNameEncrypted);
             }, directoryOption, encryptionDestinationDirectoryOption, passwordOption, silentOption, encryptFileName);
@@ -386,43 +382,76 @@ namespace FolderEncryptor
             }
         }
 
-        private static StringBuilder GetPassword(string? argPassword)
+        private static StringBuilder GetPassword(string? argPassword, int requiredPasswordEntry = 1)
         {
             StringBuilder password;
             if (string.IsNullOrWhiteSpace(argPassword))
-                password = ReadLine();
+                password = GetPasswordFromTerminal(requiredPasswordEntry);
             else
                 password = new StringBuilder(argPassword);
             return password;
         }
 
-        private static StringBuilder ReadLine()
+        private static StringBuilder GetPasswordFromTerminal(int requiredPasswordEntry)
         {
             Console.Write("Enter passphrase: ");
-            var password = new StringBuilder();
+
+            int passwordIndex = 0;
+            StringBuilder[] passwords = new StringBuilder[requiredPasswordEntry];
+            for (int i = 0; i < requiredPasswordEntry; i++)
+                passwords[i] = new StringBuilder();
+
+            var currentPassword = passwords[passwordIndex];
+
             while (true)
             {
                 ConsoleKeyInfo key = Console.ReadKey(true);
                 if (key.Key == ConsoleKey.Enter)
                 {
+                    if (passwordIndex < requiredPasswordEntry - 1)
+                    {
+                        passwordIndex++;
+                        currentPassword = passwords[passwordIndex];
+                        Console.WriteLine();
+                        Console.Write("Enter passphrase again: ");
+                        continue;
+                    }
+
+                    var isAllEqual = true;
+                    for (int i = 1; i < requiredPasswordEntry; i++)
+                        isAllEqual = isAllEqual || passwords[i - 1].Equals(passwords[i]);
+
+                    if (!isAllEqual)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("Entered Passwords didn't match.");
+
+                        Console.Write("Enter passphrase: ");
+
+                        passwordIndex = 0;
+                        for (int i = 0; i < requiredPasswordEntry; i++)
+                            passwords[i].Clear();
+                        continue;
+                    }
+
                     break;
                 }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
-                    if (password.Length > 0)
+                    if (currentPassword.Length > 0)
                     {
-                        password.Remove(password.Length - 1, 1);
+                        currentPassword.Remove(currentPassword.Length - 1, 1);
                         //Console.Write("\b \b");
                     }
                 }
                 else if (key.KeyChar != '\u0000') // KeyChar == '\u0000' if the key pressed does not correspond to a printable character, e.g. F1, Pause-Break, etc
                 {
-                    password.Append(key.KeyChar);
+                    currentPassword.Append(key.KeyChar);
                     //Console.Write("*");
                 }
             }
             Console.WriteLine();
-            return password;
+            return currentPassword;
         }
 
         private static void SetAESParameters([NotNull] StringBuilder password, [NotNull] Aes aes, byte[] salt)
