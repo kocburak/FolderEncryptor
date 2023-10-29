@@ -419,7 +419,7 @@ namespace FolderEncryptor
 
                     var isAllEqual = true;
                     for (int i = 1; i < requiredPasswordEntry; i++)
-                        isAllEqual = isAllEqual || passwords[i - 1].Equals(passwords[i]);
+                        isAllEqual = isAllEqual && passwords[i - 1].Equals(passwords[i]);
 
                     if (!isAllEqual)
                     {
@@ -428,9 +428,11 @@ namespace FolderEncryptor
 
                         Console.Write("Enter passphrase: ");
 
-                        passwordIndex = 0;
                         for (int i = 0; i < requiredPasswordEntry; i++)
                             passwords[i].Clear();
+
+                        passwordIndex = 0;
+                        currentPassword = passwords[passwordIndex];
                         continue;
                     }
 
